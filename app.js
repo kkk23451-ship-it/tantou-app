@@ -287,6 +287,7 @@ async function runSync(verbose) {
     }
     store.set("logs", logs); store.set("pending", pending); store.set("meta", meta);
     if (changed) { rebuildStats(); if (view === "home") renderHome(); }
+    if (view === "settings") renderSettings();
     if (verbose) msg("同期しました。");
   } catch (e) {
     if (verbose) msg("同期できませんでした：" + e.message);
