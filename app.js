@@ -114,8 +114,8 @@ function renderQuiz() {
   const metaHtml = `<div class="meta">
       <span class="chip">第${q.ch}章 ${q.no ? "問題" + q.no : esc(q.id)}</span>
       ${q.imp ? `<span class="chip">重要度${esc(q.imp)}</span>` : ""}
-      ${q.src ? `<span class="chip">${esc(q.src)}</span>` : ""}
-      ${q.pe ? `<span>${esc(q.pe)}</span>` : ""}
+      ${(q.pk || []).map((k) => `<span class="chip">${k === "類題" ? "過去問類題" : "過去問"}</span>`).join("")}
+      ${q.src ? `<span class="chip">AI問題</span>` : ""}
     </div><div class="meta">${esc(q.sec)}</div>`;
   let body = `<div class="card">${metaHtml}<div class="qtext">${rich(q.q)}</div></div>`;
   let buttons;
