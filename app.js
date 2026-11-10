@@ -41,6 +41,7 @@ const dayStart = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return 
 const daysBetween = (a, b) => Math.round((dayStart(a) - dayStart(b)) / DAY);
 const parseDay = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d).getTime(); };
 let stats = new Map();   // id → {n, w, s, l, last, x}
+let memos = new Map();   // id → メモ（いちばん新しいもの）
 
 function rebuildStats() {
   stats = new Map();
@@ -51,7 +52,9 @@ function rebuildStats() {
   const all = [];
   for (const arr of Object.values(logs)) for (const x of arr) all.push(x);
   all.sort((a, b) => a.t - b.t);
+  memos = new Map();
   for (const x of all) {
+    if (x.m !== undefined) { memos.set(x.i, x.m); continue; }   // メモの記録
     const s = stats.get(x.i) || { n: 0, w: 0, s: null, l: null, last: null, x: false };
     s.n++; if (!x.r) s.w++;
     s.s = x.r ? (s.s || 0) + 1 : 0; s.l = x.r; s.last = x.t; s.x = false;
@@ -96,16 +99,17 @@ function scopeLabel(sc = scope) {
   if (sc.type === "ch") return `第${sc.ch}章 ${titles[sc.ch] || ""}`;
   if (sc.type === "sec") return `第${sc.ch}章 ${sc.sec}`;
   if (sc.type === "one") return `この問題だけ`;
-  return "今日のノルマ → おまかせ";
+  return "おまかせ（優先度の高い順）";
 }
-// 出す順：ノルマ（優先度 > 11、今日まだ解いていない）を高い順 → 残りを優先度の高い順。同じ優先度（未着手の0など）は問題集の順
+// 出す順：優先度の高い順（同じなら問題集の順）。ただし今日すでに解いた問題は後ろへ回す
+function solvedToday(q, now) { const s = stats.get(q.id); return !!(s && s.n && s.last != null && daysBetween(now, s.last) <= 0); }
 function pickNext() {
   const now = Date.now();
-  let bestQ = null, bestP = -1, bestQuota = false;
+  let bestQ = null, bestKey = null;
   for (const q of Q) {
     if (!inScope(q) || recent.includes(q.id)) continue;
-    const p = priority(q, now), iq = inQuota(q, now);
-    if ((iq && !bestQuota) || (iq === bestQuota && p > bestP)) { bestQ = q; bestP = p; bestQuota = iq; }
+    const key = [solvedToday(q, now) ? 1 : 0, -priority(q, now)];
+    if (!bestKey || key[0] < bestKey[0] || (key[0] === bestKey[0] && key[1] < bestKey[1])) { bestQ = q; bestKey = key; }
   }
   if (bestQ) return bestQ;
   recent = [];
@@ -116,7 +120,7 @@ function quota() {
   let left = 0;
   for (const q of Q) if (inQuota(q, now)) left++;
   const done = new Set();
-  for (const arr of Object.values(logs)) for (const x of arr) if (x.t >= today) done.add(x.i);
+  for (const arr of Object.values(logs)) for (const x of arr) if (x.t >= today && x.m === undefined) done.add(x.i);
   return { left, done: done.size };
 }
 
@@ -148,7 +152,15 @@ function setScope(sc) { scope = sc; store.set("scope", sc); updateBar(); }
 function updateBar() {
   $("#scope-label").textContent = scopeLabel();
   const { left, done } = quota();
-  $("#quota").innerHTML = Q.length ? `ノルマ 残り<b>${left}</b>・今日 ${done}問` : "";
+  let inSc = "";
+  if (scope.type !== "all" && Q.length) {
+    const now = Date.now(); let k = 0;
+    for (const q of Q) if (inScope(q) && inQuota(q, now)) k++;
+    inSc = `（この範囲 ${k}）<button id="to-all" class="link">おまかせに戻す</button>`;
+  }
+  $("#quota").innerHTML = Q.length ? `ノルマ 残り<b>${left}</b>${inSc}・今日 ${done}問` : "";
+  const ta = $("#to-all");
+  if (ta) ta.onclick = () => { setScope({ type: "all" }); recent = []; if (cur && cur.stage === "q") setCur(null); renderQuiz(); window.scrollTo(0, 0); };
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.v === view));
 }
 
@@ -166,7 +178,7 @@ function renderQuiz() {
   const s = stats.get(q.id);
   const p = priority(q);
   const tf = q.v === "正しい" || q.v === "誤り";
-  let body = `<div class="card"><div class="meta"><span class="chip">第${q.ch}章 ${q.no ? "問題" + q.no : esc(q.id)}</span>${chips(q)}</div>
+  let body = `<div class="card"><div class="meta"><span class="chip">第${q.ch}章 ${q.no ? "問題" + q.no : esc(q.id)}</span>${chips(q)}${inQuota(q) ? '<span class="chip quota">ノルマ</span>' : ""}</div>
     <div class="meta">${esc(q.sec)}</div><div class="qtext">${rich(q.q)}</div></div>`;
   let buttons;
   if (cur.stage === "q") {
@@ -176,7 +188,8 @@ function renderQuiz() {
   } else {
     const graded = cur.ok !== undefined;
     body += `<div class="result ${graded ? (cur.ok ? "ok" : "ng") : ""}">
-      ${graded && tf ? `<div class="mark">${cur.ok ? "○ 正解" : "× 不正解"}</div>` : ""}${answerHtml(q)}</div>`;
+      ${graded && tf ? `<div class="mark">${cur.ok ? "○ 正解" : "× 不正解"}</div>` : ""}${answerHtml(q)}</div>
+      <label class="f" for="memo">メモ</label><textarea id="memo" rows="3" placeholder="この問題のメモ">${esc(memos.get(q.id) || "")}</textarea>`;
     buttons = graded
       ? `<button class="primary" data-a="next">次へ</button>`
       : `<button data-a="self1">○ できた</button><button data-a="self0">× できなかった</button>`;
@@ -184,7 +197,21 @@ function renderQuiz() {
   if (s && s.n) body += `<div class="stats">${s.n}回・誤り${s.w}回・連続正答${s.s ?? "-"}・最後 ${s.last ? new Date(s.last).toLocaleDateString("ja-JP") : "-"}・優先度 ${p.toFixed(1)}</div>`;
   else body += `<div class="stats">未着手・優先度 0</div>`;
   main.innerHTML = body + `<div class="answers">${buttons}</div>`;
-  main.querySelectorAll(".answers button").forEach((b) => b.addEventListener("click", () => onAnswer(q, b.dataset.a)));
+  main.querySelectorAll(".answers button").forEach((b) => b.addEventListener("click", () => { saveMemo(q); onAnswer(q, b.dataset.a); }));
+  const m = $("#memo");
+  if (m) { m.addEventListener("blur", () => saveMemo(q)); m.addEventListener("input", () => store.set("memoDraft", { id: q.id, m: m.value })); const d = store.get("memoDraft", null); if (d && d.id === q.id) m.value = d.m; }
+}
+function saveMemo(q) {
+  const m = $("#memo");
+  if (!m) return;
+  const v = m.value.replace(/\s+$/, "");
+  store.set("memoDraft", null);
+  if (v === (memos.get(q.id) || "")) return;
+  const x = { i: q.id, t: Date.now(), m: v };
+  (logs[device] ||= []).push(x); pending.push(x);
+  memos.set(q.id, v);
+  store.set("logs", logs); store.set("pending", pending);
+  showSync(); scheduleSync();
 }
 
 function onAnswer(q, a) {
@@ -281,6 +308,7 @@ function fillSection(d) {
     const s = stats.get(q.id);
     b.innerHTML = `<div class="meta">${chips(q)}</div><div class="qtext">${rich(q.q)}</div>
       <details class="ans"><summary>解答と解説</summary>${answerHtml(q)}</details>
+      ${memos.get(q.id) ? `<div class="memo-view"><span class="muted">メモ</span>${rich(memos.get(q.id))}</div>` : ""}
       <div class="stats">${s && s.n ? `${s.n}回・誤り${s.w}回・連続正答${s.s ?? "-"}` : "未着手"}</div>
       ${solveBtn({ type: "one", id: q.id })}`;
     b.dataset.done = 1;

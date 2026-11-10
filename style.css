@@ -92,3 +92,8 @@ details.q > summary .name { flex: 1; font-size: 14px; }
 details.ans { margin: 8px 0; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
 details.ans > summary { color: var(--accent); }
 .solve { margin-top: 6px; }
+
+textarea#memo { width: 100%; font: inherit; font-size: 16px; padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); resize: vertical; }
+.memo-view { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--card); font-size: 14px; }
+.chip.quota { background: var(--ngbg); color: var(--ng); }
+button.link { border: 0; background: none; color: var(--accent); font-size: 13px; padding: 0 4px; text-decoration: underline; }
