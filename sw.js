@@ -1,7 +1,7 @@
 // アプリの枠を端末に保存し、通信なしでも開けるようにする。
 // 枠は保存したものをすぐ返し、裏で新しい版を取りに行く（次に開いたときに反映）。
-// GitHub への問い合わせ（問題と記録）はここでは扱わない。
-const CACHE = "shell-v6";
+// GitHub への問い合わせ（問題と記録）はここでは扱わない。問題を保存した "data" の入れ物は消さない。
+const CACHE = "shell-v7";
 const SHELL = ["./", "index.html", "app.js", "style.css", "manifest.json", "icon-180.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {
@@ -10,7 +10,7 @@ self.addEventListener("install", (e) => {
 
 self.addEventListener("activate", (e) => {
   e.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+    caches.keys().then((keys) => Promise.all(keys.filter((k) => k.startsWith("shell-") && k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });

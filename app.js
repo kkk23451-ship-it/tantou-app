@@ -379,7 +379,7 @@ async function runSync(verbose) {
     if (!list.ok) throw new Error(`一覧 ${list.status}`);
     const files = await list.json();
     const qf = files.find((f) => f.name === "questions.json");
-    if (qf && qf.sha !== meta.qsha) {
+    if (qf && (qf.sha !== meta.qsha || !Q.length)) {   // 端末の問題が消えていたら取り直す
       const r = await gh("/questions.json", { raw: true });
       if (!r.ok) throw new Error(`問題 ${r.status}`);
       const text = await r.text();
