@@ -92,6 +92,15 @@ details.q > summary .name { flex: 1; font-size: 14px; }
 details.ans { margin: 8px 0; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
 details.ans > summary { color: var(--accent); }
 .solve { margin-top: 6px; }
+/* 解説のトグル（kt）。子は kt2 */
+details.kt { border-top: 1px solid var(--line); }
+details.kt:last-child { border-bottom: 1px solid var(--line); }
+details.kt > summary { list-style: none; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 0; font-weight: 600; line-height: 1.5; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+details.kt > summary::-webkit-details-marker { display: none; }
+details.kt > summary::before { content: "▸"; color: var(--muted); font-size: 12px; flex: none; }
+details.kt[open] > summary::before { content: "▾"; }
+.kt-body { padding: 2px 0 10px 1.2em; }
+details.kt2:last-child { border-bottom: 0; }
 
 textarea#memo { width: 100%; font: inherit; font-size: 16px; padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); resize: vertical; }
 .memo-view { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--card); font-size: 14px; }

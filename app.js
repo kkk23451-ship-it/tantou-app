@@ -146,6 +146,28 @@ function rich(text) {
   return String(text || "").split(/\n{2,}/).filter((p) => p.trim()).map((p) =>
     "<p>" + esc(p).replace(/\*\*([\s\S]+?)\*\*/g, "<b>$1</b>").replace(/\n/g, "<br>") + "</p>").join("");
 }
+// 解説：「▸ 」の行はトグルのタイトル、「▸▸ 」の行は直前の「▸ 」の中の子のトグル。
+// 中身は次のタイトルの行か終わりまで。最初のタイトルより前の段落は常に表示する。タイトルの行が無ければ rich() と同じ。
+const TOGGLE = /^(▸▸?)[ 　]+(.*)$/;
+function explain(text) {
+  const lines = String(text || "").split(/\r?\n/);
+  if (!lines.some((l) => TOGGLE.test(l))) return rich(text);
+  const lead = [], tops = [];
+  let body = lead;
+  for (const l of lines) {
+    const m = l.match(TOGGLE);
+    if (!m) { body.push(l); continue; }
+    const t = { title: m[2].trim(), body: [], kids: [] };
+    if (m[1] === "▸▸" && tops.length) tops[tops.length - 1].kids.push(t);
+    else tops.push(t);                       // 親の無い「▸▸ 」は「▸ 」として扱う
+    body = t.body;
+  }
+  const part = (ls) => rich(ls.join("\n").replace(/^\s*\n|\n\s*$/g, ""));   // タイトルの直後の改行を段落に入れない
+  const title = (s) => esc(s).replace(/\*\*([\s\S]+?)\*\*/g, "<b>$1</b>");
+  const box = (t, cls) => `<details class="${cls}"><summary>${title(t.title)}</summary><div class="kt-body">${part(t.body)}`
+    + t.kids.map((k) => box(k, "kt kt2")).join("") + `</div></details>`;
+  return part(lead) + tops.map((t) => box(t, "kt")).join("");
+}
 const plain = (t) => String(t || "").replace(/\*\*/g, "").replace(/\s+/g, "");
 function chips(q) {
   return `${q.imp ? `<span class="chip">重要度${esc(q.imp)}</span>` : ""}`
@@ -160,7 +182,7 @@ function answerHtml(q) {
   const tf = q.v === "正しい" || q.v === "誤り";
   return `<div class="head">解答：${esc(tf ? q.v : q.b)}</div>
     ${tf && q.b ? `<div class="basis">${esc(q.b)}</div>` : ""}
-    <div class="qtext">${rich(q.e) || '<p class="muted">（解説なし）</p>'}</div>`;
+    <div class="qtext">${explain(q.e) || '<p class="muted">（解説なし）</p>'}</div>`;
 }
 function setCur(c) { cur = c; store.set("cur", c); }
 function setScope(sc) { scope = sc; store.set("scope", sc); updateBar(); }
@@ -212,7 +234,11 @@ function renderQuiz() {
   if (s && s.n) body += `<div class="stats">${s.n}回・誤り${s.w}回・連続正答${s.s ?? "-"}・最後 ${s.last ? new Date(s.last).toLocaleDateString("ja-JP") : "-"}・優先度 ${p.toFixed(1)}</div>`;
   else body += `<div class="stats">未着手・優先度 0</div>`;
   body += historyLine(q);
+  // 同じ問題を描き直すとき（自己採点など）は、開いていた解説のトグルを開いたままにする
+  const kept = main.querySelector(".result") && main.dataset.qid === q.id ? [...main.querySelectorAll("details.kt")].map((d) => d.open) : [];
   main.innerHTML = body + `<div class="answers">${buttons}</div>`;
+  main.dataset.qid = q.id;
+  main.querySelectorAll("details.kt").forEach((d, i) => { if (kept[i]) d.open = true; });
   main.querySelectorAll(".answers button").forEach((b) => b.addEventListener("click", () => { saveMemo(q); onAnswer(q, b.dataset.a); }));
   const m = $("#memo");
   if (m) { m.addEventListener("blur", () => saveMemo(q)); m.addEventListener("input", () => store.set("memoDraft", { id: q.id, m: m.value })); const d = store.get("memoDraft", null); if (d && d.id === q.id) m.value = d.m; }
