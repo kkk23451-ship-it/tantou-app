@@ -97,3 +97,15 @@ textarea#memo { width: 100%; font: inherit; font-size: 16px; padding: 10px; bord
 .memo-view { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--card); font-size: 14px; }
 .chip.quota { background: var(--ngbg); color: var(--ng); }
 button.link { border: 0; background: none; color: var(--accent); font-size: 13px; padding: 0 4px; text-decoration: underline; }
+
+/* 履歴 */
+.hline { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.9; }
+.hok { color: var(--ok); font-weight: 600; }
+.hng { color: var(--ng); font-weight: 600; }
+.filter { display: flex; gap: 8px; margin: 4px 0 12px; }
+.filter button { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 4px 14px; font-size: 14px; }
+.filter button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.hday { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px; overflow: hidden; }
+.hhead { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; font-weight: 600; font-size: 15px; }
+details.q.h { margin-left: 0; }
+.hm { width: 1.2em; text-align: center; }

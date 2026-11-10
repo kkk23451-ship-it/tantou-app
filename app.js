@@ -88,6 +88,21 @@ function mastery(q) {
   return Math.min(s.s ?? (s.l ? 1 : 0), 3) / 3;
 }
 
+// この問題を解いた記録（古い順）
+function answersOf(id) {
+  const out = [];
+  for (const arr of Object.values(logs)) for (const x of arr) if (x.i === id && x.m === undefined) out.push(x);
+  return out.sort((a, b) => a.t - b.t);
+}
+const md = (t) => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()}`; };
+function historyLine(q) {
+  const a = answersOf(q.id);
+  const init = q.init && q.init.n ? `<span class="muted">Notion ${q.init.n}回</span> ` : "";
+  if (!a.length && !init) return "";
+  const marks = a.slice(-12).map((x) => `<span class="${x.r ? "hok" : "hng"}">${md(x.t)}${x.r ? "○" : "×"}</span>`).join(" ");
+  return `<div class="hline">履歴 ${init}${a.length > 12 ? "… " : ""}${marks}</div>`;
+}
+
 // ---------- 範囲と出題 ----------
 function inScope(q, sc = scope) {
   if (sc.type === "ch") return q.ch === sc.ch;
@@ -196,6 +211,7 @@ function renderQuiz() {
   }
   if (s && s.n) body += `<div class="stats">${s.n}回・誤り${s.w}回・連続正答${s.s ?? "-"}・最後 ${s.last ? new Date(s.last).toLocaleDateString("ja-JP") : "-"}・優先度 ${p.toFixed(1)}</div>`;
   else body += `<div class="stats">未着手・優先度 0</div>`;
+  body += historyLine(q);
   main.innerHTML = body + `<div class="answers">${buttons}</div>`;
   main.querySelectorAll(".answers button").forEach((b) => b.addEventListener("click", () => { saveMemo(q); onAnswer(q, b.dataset.a); }));
   const m = $("#memo");
@@ -310,6 +326,7 @@ function fillSection(d) {
       <details class="ans"><summary>解答と解説</summary>${answerHtml(q)}</details>
       ${memos.get(q.id) ? `<div class="memo-view"><span class="muted">メモ</span>${rich(memos.get(q.id))}</div>` : ""}
       <div class="stats">${s && s.n ? `${s.n}回・誤り${s.w}回・連続正答${s.s ?? "-"}` : "未着手"}</div>
+      ${historyLine(q)}
       ${solveBtn({ type: "one", id: q.id })}`;
     b.dataset.done = 1;
   }));
@@ -324,6 +341,53 @@ function onListClick(e) {
   // 範囲を選び直したら、表示中の問題を引き継がず、その範囲でいちばん優先度の高い問題から出す
   setCur(sc.type === "one" ? { id: sc.id, stage: "q" } : null);
   renderQuiz(); window.scrollTo(0, 0);
+}
+
+// ---------- 履歴（解いた記録を新しい順に） ----------
+let histFilter = store.get("histFilter", "all");   // all | ng
+let histLimit = 100;
+function renderHistory() {
+  view = "history"; updateBar();
+  const all = [];
+  for (const arr of Object.values(logs)) for (const x of arr) if (x.m === undefined && byId.has(x.i)) all.push(x);
+  all.sort((a, b) => b.t - a.t);
+  const rows = histFilter === "ng" ? all.filter((x) => !x.r) : all;
+  const wk = ["日", "月", "火", "水", "木", "金", "土"];
+  // 日ごとの集計（絞り込みに関係なく、その日に解いた数）
+  const perDay = new Map();
+  for (const x of all) { const k = dayStart(x.t); const o = perDay.get(k) || { n: 0, ok: 0 }; o.n++; if (x.r) o.ok++; perDay.set(k, o); }
+  let html = `<div class="filter"><button data-f="all" class="${histFilter === "all" ? "on" : ""}">すべて</button><button data-f="ng" class="${histFilter === "ng" ? "on" : ""}">× だけ</button></div>`;
+  if (!rows.length) html += `<p class="muted pad">${all.length ? "× の記録はありません。" : "まだ記録がありません。解くとここに残ります。"}</p>`;
+  let day = null;
+  for (const x of rows.slice(0, histLimit)) {
+    const k = dayStart(x.t);
+    if (k !== day) {
+      if (day !== null) html += `</div>`;
+      day = k; const d = new Date(k), o = perDay.get(k);
+      html += `<div class="hday"><div class="hhead">${d.getMonth() + 1}月${d.getDate()}日（${wk[d.getDay()]}）<span class="count">${o.n}問・○${o.ok} ×${o.n - o.ok}</span></div>`;
+    }
+    const q = byId.get(x.i), t = new Date(x.t);
+    const hm = `${t.getHours()}:${String(t.getMinutes()).padStart(2, "0")}`;
+    html += `<details class="q h"><summary><span class="${x.r ? "hok" : "hng"} hm">${x.r ? "○" : "×"}</span><span class="name">${esc(`第${q.ch}章 ${q.no ? "問題" + q.no : "AI問題"}　${plain(q.q).slice(0, 22)}…`)}</span><span class="count">${hm}</span></summary>
+      <div class="qbody" data-id="${esc(q.id)}"></div></details>`;
+  }
+  if (day !== null) html += `</div>`;
+  if (rows.length > histLimit) html += `<button class="btn sub" id="more">もっと見る（あと${rows.length - histLimit}件）</button>`;
+  const main = $("#main");
+  main.innerHTML = html;
+  main.querySelectorAll(".filter button").forEach((b) => b.onclick = () => { histFilter = b.dataset.f; store.set("histFilter", histFilter); histLimit = 100; renderHistory(); });
+  const more = $("#more"); if (more) more.onclick = () => { histLimit += 100; renderHistory(); };
+  main.querySelectorAll("details.q").forEach((qd) => qd.addEventListener("toggle", () => {
+    const b = qd.querySelector(".qbody");
+    if (!qd.open || b.dataset.done) return;
+    const q = byId.get(b.dataset.id);
+    b.innerHTML = `<div class="meta"><span class="chip">${esc(q.sec)}</span>${chips(q)}</div><div class="qtext">${rich(q.q)}</div>
+      <details class="ans"><summary>解答と解説</summary>${answerHtml(q)}</details>
+      ${memos.get(q.id) ? `<div class="memo-view"><span class="muted">メモ</span>${rich(memos.get(q.id))}</div>` : ""}
+      ${historyLine(q)}${solveBtn({ type: "one", id: q.id })}`;
+    b.dataset.done = 1;
+  }));
+  main.onclick = onListClick;
 }
 
 // ---------- 設定 ----------
@@ -366,7 +430,7 @@ function b64(text) {
   let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(s);
 }
-function rerender() { if (view === "list") renderList(); else if (view === "settings") renderSettings(); else if (!cur || cur.stage === "q") renderQuiz(); else updateBar(); }
+function rerender() { if (view === "list") renderList(); else if (view === "history") renderHistory(); else if (view === "settings") renderSettings(); else if (!cur || cur.stage === "q") renderQuiz(); else updateBar(); }
 
 async function runSync(verbose) {
   const msg = (t) => { const m = $("#msg"); if (m) m.textContent = t; };
@@ -434,7 +498,7 @@ function loadQuestions(text) {
 async function boot() {
   document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => {
     const v = b.dataset.v;
-    if (v === "quiz") renderQuiz(); else if (v === "list") renderList(); else renderSettings();
+    if (v === "quiz") renderQuiz(); else if (v === "list") renderList(); else if (v === "history") renderHistory(); else renderSettings();
     window.scrollTo(0, 0);
   }));
   let text = await cacheData.get("questions.json");
