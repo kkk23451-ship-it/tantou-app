@@ -60,7 +60,7 @@ function rebuildStats() {
 }
 function priority(q, now = Date.now()) {
   const s = stats.get(q.id);
-  if (!s || !s.n) return null;                       // 未着手
+  if (!s || !s.n) return 0;                          // 一度も解いていない問題は0（2026-11-10 本人指定）
   if (s.x) return 0;                                 // Notion で重要度 -1（出さない）にしていた節
   const n = s.n, w = s.w, c = n - w;
   const D = s.last == null ? 0 : Math.max(0, daysBetween(now, s.last));
@@ -71,9 +71,9 @@ function priority(q, now = Date.now()) {
     * ((D + 1) / Math.pow(c + 1, 1.9)) * (imp + 1) * sf * (273 / toExam) / 4 * 100;
 }
 // 今日のノルマ：優先度 > 11 で、今日まだ解いていない（Notion の復習用ビューと同じ条件）
+const seen = (q) => { const s = stats.get(q.id); return !!(s && s.n); };
 function inQuota(q, now = Date.now()) {
-  const p = priority(q, now);
-  if (p == null || p <= QUOTA_LINE) return false;
+  if (!seen(q) || priority(q, now) <= QUOTA_LINE) return false;
   const s = stats.get(q.id);
   return s.last == null || daysBetween(now, s.last) > 0;
 }
@@ -98,25 +98,16 @@ function scopeLabel(sc = scope) {
   if (sc.type === "one") return `この問題だけ`;
   return "今日のノルマ → おまかせ";
 }
-// 出す順：ノルマ（優先度 > 11）を高い順 → 範囲を絞っていれば未着手を問題集の順 → 残りを優先度の高い順 → 未着手
+// 出す順：ノルマ（優先度 > 11、今日まだ解いていない）を高い順 → 残りを優先度の高い順。同じ優先度（未着手の0など）は問題集の順
 function pickNext() {
   const now = Date.now();
-  let bestQ = null, bestP = -1, firstNew = null;
+  let bestQ = null, bestP = -1, bestQuota = false;
   for (const q of Q) {
     if (!inScope(q) || recent.includes(q.id)) continue;
-    const p = priority(q, now);
-    if (p == null) { if (!firstNew) firstNew = q; continue; }
-    if (inQuota(q, now) && p > bestP) { bestQ = q; bestP = p; }
+    const p = priority(q, now), iq = inQuota(q, now);
+    if ((iq && !bestQuota) || (iq === bestQuota && p > bestP)) { bestQ = q; bestP = p; bestQuota = iq; }
   }
   if (bestQ) return bestQ;
-  for (const q of Q) {
-    if (!inScope(q) || recent.includes(q.id)) continue;
-    const p = priority(q, now);
-    if (p != null && p > bestP) { bestQ = q; bestP = p; }
-  }
-  if (scope.type !== "all" && firstNew) return firstNew;
-  if (bestQ) return bestQ;
-  if (firstNew) return firstNew;
   recent = [];
   return Q.find((q) => inScope(q)) || null;
 }
@@ -190,8 +181,8 @@ function renderQuiz() {
       ? `<button class="primary" data-a="next">次へ</button>`
       : `<button data-a="self1">○ できた</button><button data-a="self0">× できなかった</button>`;
   }
-  if (s && s.n) body += `<div class="stats">${s.n}回・誤り${s.w}回・連続正答${s.s ?? "-"}・最後 ${s.last ? new Date(s.last).toLocaleDateString("ja-JP") : "-"}・優先度 ${p == null ? "-" : p.toFixed(1)}</div>`;
-  else body += `<div class="stats">未着手</div>`;
+  if (s && s.n) body += `<div class="stats">${s.n}回・誤り${s.w}回・連続正答${s.s ?? "-"}・最後 ${s.last ? new Date(s.last).toLocaleDateString("ja-JP") : "-"}・優先度 ${p.toFixed(1)}</div>`;
+  else body += `<div class="stats">未着手・優先度 0</div>`;
   main.innerHTML = body + `<div class="answers">${buttons}</div>`;
   main.querySelectorAll(".answers button").forEach((b) => b.addEventListener("click", () => onAnswer(q, b.dataset.a)));
 }
@@ -233,7 +224,7 @@ function groupQ() {
 }
 function summary(qs, now) {
   let m = 0, left = 0, nw = 0;
-  for (const q of qs) { m += mastery(q); if (priority(q, now) == null) nw++; else if (inQuota(q, now)) left++; }
+  for (const q of qs) { m += mastery(q); if (!seen(q)) nw++; else if (inQuota(q, now)) left++; }
   return { m: qs.length ? m / qs.length : 0, left, nw, n: qs.length };
 }
 const cnt = (o) => `<span class="count">${o.left ? `<b>ノルマ${o.left}</b> ` : ""}未${o.nw}/${o.n}</span>`;
