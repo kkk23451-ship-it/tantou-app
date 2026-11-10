@@ -2,7 +2,7 @@
 // 財理 短答アプリ（試作）
 // 問題と記録は非公開リポジトリに置き、端末にため込んで使う。このファイルに教材の文章は入れない。
 
-const REPO = "kkk23451-ship-it/account_question";
+const REPO = "kkk23451-ship-it/account_general";
 const DIR = "app";
 const API = `https://api.github.com/repos/${REPO}/contents/${DIR}`;
 const DEV = ["localhost", "127.0.0.1"].includes(location.hostname);
@@ -202,7 +202,7 @@ function renderSettings() {
   const token = store.get("token", "");
   const n = Object.values(logs).reduce((a, x) => a + x.length, 0);
   $("#main").innerHTML = `<div class="card">
-    <label class="f">GitHub のトークン（account_question の読み書きだけに絞ったもの）</label>
+    <label class="f">GitHub のトークン（account_general の読み書きだけに絞ったもの）</label>
     <input id="tok" type="password" autocomplete="off" value="${esc(token)}" placeholder="github_pat_…">
     <button class="btn" id="save">保存して同期</button>
     <p class="note">トークンはこの端末の中だけに保存されます。</p>
