@@ -1,7 +1,7 @@
 // アプリの枠を端末に保存し、通信なしでも開けるようにする。
 // 枠は保存したものをすぐ返し、裏で新しい版を取りに行く（次に開いたときに反映）。
 // GitHub への問い合わせ（問題と記録）はここでは扱わない。
-const CACHE = "shell-v5";
+const CACHE = "shell-v6";
 const SHELL = ["./", "index.html", "app.js", "style.css", "manifest.json", "icon-180.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {

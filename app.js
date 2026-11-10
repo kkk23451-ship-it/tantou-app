@@ -321,7 +321,8 @@ function onListClick(e) {
   const sc = JSON.parse(b.dataset.sc);
   setScope(sc);
   recent = [];
-  setCur(sc.type === "one" ? { id: sc.id, stage: "q" } : (cur && cur.stage === "q" && byId.get(cur.id) && inScope(byId.get(cur.id), sc) ? cur : null));
+  // 範囲を選び直したら、表示中の問題を引き継がず、その範囲でいちばん優先度の高い問題から出す
+  setCur(sc.type === "one" ? { id: sc.id, stage: "q" } : null);
   renderQuiz(); window.scrollTo(0, 0);
 }
 
