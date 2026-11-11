@@ -35,6 +35,7 @@ let openState = store.get("open", {});    // 一覧で開いている章・節
 // ---------- 優先度（Notion「問題」DB の式を一問ごとに使う） ----------
 const EXAM = new Date(2027, 4, 30);       // 試験日 2027-05-30
 const QUOTA_LINE = 11;                    // 優先度がこれを超える問題が今日のノルマ
+const QUOTA_MAX = 30;                     // 1日のノルマの上限（2026-11-12 本人指定）
 const IMP = { "Ａ": 1, "Ｂ": 0.5, "Ｃ": 0, "Ｄ": -0.5 }; // Notion の「重要度」の欄に当てる値（AI問題は 0.5）
 const DAY = 86400000;
 const dayStart = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
@@ -43,26 +44,34 @@ const parseDay = (s) => { const [y, m, d] = s.split("-").map(Number); return new
 let stats = new Map();   // id → {n, w, s, l, last, x}
 let memos = new Map();   // id → メモ（いちばん新しいもの）
 
-function rebuildStats() {
-  stats = new Map();
+// 記録から集計する。until を渡すと、その時刻より前の記録だけを使う
+function buildStats(until = Infinity) {
+  const st = new Map();
   for (const q of Q) {
     const i = q.init;
-    if (i) stats.set(q.id, { n: i.n || 0, w: i.w || 0, s: i.s ?? null, l: i.l ?? null, last: i.d ? parseDay(i.d) : null, x: !!i.x });
+    if (i) st.set(q.id, { n: i.n || 0, w: i.w || 0, s: i.s ?? null, l: i.l ?? null, last: i.d ? parseDay(i.d) : null, x: !!i.x });
   }
   const all = [];
-  for (const arr of Object.values(logs)) for (const x of arr) all.push(x);
+  for (const arr of Object.values(logs)) for (const x of arr) if (x.m === undefined && x.t < until) all.push(x);
   all.sort((a, b) => a.t - b.t);
-  memos = new Map();
   for (const x of all) {
-    if (x.m !== undefined) { memos.set(x.i, x.m); continue; }   // メモの記録
-    const s = stats.get(x.i) || { n: 0, w: 0, s: null, l: null, last: null, x: false };
+    const s = st.get(x.i) || { n: 0, w: 0, s: null, l: null, last: null, x: false };
     s.n++; if (!x.r) s.w++;
     s.s = x.r ? (s.s || 0) + 1 : 0; s.l = x.r; s.last = x.t; s.x = false;
-    stats.set(x.i, s);
+    st.set(x.i, s);
   }
+  return st;
 }
-function priority(q, now = Date.now()) {
-  const s = stats.get(q.id);
+function rebuildStats() {
+  stats = buildStats();
+  const ms = [];
+  for (const arr of Object.values(logs)) for (const x of arr) if (x.m !== undefined) ms.push(x);   // メモの記録
+  ms.sort((a, b) => a.t - b.t);
+  memos = new Map(ms.map((x) => [x.i, x.m]));
+  quotaDay = null;
+}
+function priority(q, now = Date.now(), st = stats) {
+  const s = st.get(q.id);
   if (!s || !s.n) return 0;                          // 一度も解いていない問題は0（2026-11-10 本人指定）
   if (s.x) return 0;                                 // Notion で重要度 -1（出さない）にしていた節
   const n = s.n, w = s.w, c = n - w;
@@ -73,12 +82,27 @@ function priority(q, now = Date.now()) {
   return ((Math.pow(w, 1.01) + 10) / (n + 10)) * (n / 4 + 3) / Math.pow(c + 6, 1.05)
     * ((D + 1) / Math.pow(c + 1, 1.9)) * (imp + 1) * sf * (273 / toExam) / 4 * 100;
 }
-// 今日のノルマ：優先度 > 11 で、今日まだ解いていない（Notion の復習用ビューと同じ条件）
+// 今日のノルマ：今日の始めの時点の記録で、優先度 > 11 かつ今日まだ解いていない問題（Notion の復習用ビューと同じ条件）を、
+// 優先度の高い順（同じなら問題集の順）に QUOTA_MAX 問まで。今日解いた問題はノルマから外れていき、後ろの問題は繰り上がらない。
 const seen = (q) => { const s = stats.get(q.id); return !!(s && s.n); };
+let quotaDay = null, quotaSet = new Set();
+function quotaIds(now = Date.now()) {
+  const d = dayStart(now);
+  if (quotaDay === d) return quotaSet;
+  const base = buildStats(d), cand = [];
+  Q.forEach((q, k) => {
+    const s = base.get(q.id);
+    if (!s || !s.n || (s.last != null && daysBetween(now, s.last) <= 0)) return;
+    const p = priority(q, now, base);
+    if (p > QUOTA_LINE) cand.push([p, k, q.id]);
+  });
+  cand.sort((a, b) => b[0] - a[0] || a[1] - b[1]);
+  quotaSet = new Set(cand.slice(0, QUOTA_MAX).map((x) => x[2]));
+  quotaDay = d;
+  return quotaSet;
+}
 function inQuota(q, now = Date.now()) {
-  if (!seen(q) || priority(q, now) <= QUOTA_LINE) return false;
-  const s = stats.get(q.id);
-  return s.last == null || daysBetween(now, s.last) > 0;
+  return quotaIds(now).has(q.id) && !solvedToday(q, now);
 }
 // 習熟度（ゲージ）：連続正答3回で到達（Notion の維持フェーズの基準）。未着手は0。
 function mastery(q) {
@@ -116,15 +140,16 @@ function scopeLabel(sc = scope) {
   if (sc.type === "one") return `この問題だけ`;
   return "おまかせ（優先度の高い順）";
 }
-// 出す順：優先度の高い順（同じなら問題集の順）。ただし今日すでに解いた問題は後ろへ回す
+// 出す順：ノルマの問題から、優先度の高い順（同じなら問題集の順）。ただし今日すでに解いた問題は後ろへ回す
 function solvedToday(q, now) { const s = stats.get(q.id); return !!(s && s.n && s.last != null && daysBetween(now, s.last) <= 0); }
 function pickNext() {
   const now = Date.now();
   let bestQ = null, bestKey = null;
   for (const q of Q) {
     if (!inScope(q) || recent.includes(q.id)) continue;
-    const key = [solvedToday(q, now) ? 1 : 0, -priority(q, now)];
-    if (!bestKey || key[0] < bestKey[0] || (key[0] === bestKey[0] && key[1] < bestKey[1])) { bestQ = q; bestKey = key; }
+    const key = [solvedToday(q, now) ? 1 : 0, inQuota(q, now) ? 0 : 1, -priority(q, now)];
+    const k = bestKey ? key.findIndex((v, j) => v !== bestKey[j]) : -1;
+    if (!bestKey || (k >= 0 && key[k] < bestKey[k])) { bestQ = q; bestKey = key; }
   }
   if (bestQ) return bestQ;
   recent = [];
