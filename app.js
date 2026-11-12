@@ -242,19 +242,24 @@ function renderQuiz() {
   const tf = q.v === "正しい" || q.v === "誤り";
   let body = `<div class="card"><div class="meta"><span class="chip">第${q.ch}章 ${q.no ? "問題" + q.no : esc(q.id)}</span>${chips(q)}${inQuota(q) ? '<span class="chip quota">ノルマ</span>' : ""}</div>
     <div class="meta">${esc(q.sec)}</div><div class="qtext">${rich(q.q)}</div></div>`;
+  // 答えは「正誤のスイッチ」で選ぶ。押した瞬間に判定と解答を出し、スイッチは残す（後から切り替えられる）。
+  // 記録するのは「次へ」を押したとき。そのときのスイッチの向きで ○ か × を記録する。
+  if (cur.stage === "a" && cur.ok !== undefined && cur.pick === undefined) {      // 前の版で記録済みの状態
+    setCur({ ...cur, pick: tf ? (cur.ok ? q.v : (q.v === "正しい" ? "誤り" : "正しい")) : cur.ok, done: true });
+  }
+  const picked = cur.pick !== undefined;
+  const sw = (opts) => `<div class="sw">${opts.map(([v, label]) =>
+    `<button data-a="pick" data-v="${v}" class="${picked && String(cur.pick) === String(v) ? "on" : ""}">${label}</button>`).join("")}</div>`;
+  const swHtml = tf ? sw([["正しい", "正しい"], ["誤り", "誤り"]]) : sw([["1", "○ できた"], ["0", "× できず"]]);
   let buttons;
   if (cur.stage === "q") {
-    buttons = tf
-      ? `<button data-a="正しい">正しい</button><button data-a="誤り">誤り</button>`
-      : `<button class="primary" data-a="show">解答を見る</button>`;
+    buttons = tf ? swHtml : `<button class="primary" data-a="show">解答を見る</button>`;
   } else {
-    const graded = cur.ok !== undefined;
-    body += `<div class="result ${graded ? (cur.ok ? "ok" : "ng") : ""}">
-      ${graded && tf ? `<div class="mark">${cur.ok ? "○ 正解" : "× 不正解"}</div>` : ""}${answerHtml(q)}</div>
+    body += `<div class="result ${picked ? (cur.ok ? "ok" : "ng") : ""}">
+      ${picked && tf ? `<div class="mark">${cur.ok ? "○ 正解" : "× 不正解"}</div>` : ""}${answerHtml(q)}</div>
       <label class="f" for="memo">メモ</label><textarea id="memo" rows="3" placeholder="この問題のメモ">${esc(memos.get(q.id) || "")}</textarea>`;
-    buttons = graded
-      ? `<button class="primary" data-a="next">次へ</button>`
-      : `<button data-a="self1">○ できた</button><button data-a="self0">× できなかった</button>`;
+    // 「次へ」はスイッチの上に足す。スイッチは下端に固定なので、答える前と位置も大きさも変わらない
+    buttons = `<button class="primary next" data-a="next"${picked ? "" : " disabled"}>次へ</button>` + swHtml;
   }
   if (s && s.n) body += `<div class="stats">${s.n}回・誤り${s.w}回・連続正答${s.s ?? "-"}・最後 ${s.last ? new Date(s.last).toLocaleDateString("ja-JP") : "-"}・優先度 ${p.toFixed(1)}</div>`;
   else body += `<div class="stats">未着手・優先度 0</div>`;
@@ -264,7 +269,7 @@ function renderQuiz() {
   main.innerHTML = body + `<div class="answers">${buttons}</div>`;
   main.dataset.qid = q.id;
   main.querySelectorAll("details.kt").forEach((d, i) => { if (kept[i]) d.open = true; });
-  main.querySelectorAll(".answers button").forEach((b) => b.addEventListener("click", () => { saveMemo(q); onAnswer(q, b.dataset.a); }));
+  main.querySelectorAll(".answers button").forEach((b) => b.addEventListener("click", () => { saveMemo(q); onAnswer(q, b.dataset.a, b.dataset.v); }));
   const m = $("#memo");
   if (m) { m.addEventListener("blur", () => saveMemo(q)); m.addEventListener("input", () => store.set("memoDraft", { id: q.id, m: m.value })); const d = store.get("memoDraft", null); if (d && d.id === q.id) m.value = d.m; }
 }
@@ -281,8 +286,10 @@ function saveMemo(q) {
   showSync(); scheduleSync();
 }
 
-function onAnswer(q, a) {
+function onAnswer(q, a, v) {
   if (a === "next") {
+    if (cur.pick === undefined) return;
+    commitCur();
     recent = [...recent.slice(-4), q.id];
     if (scope.type === "one") setScope({ type: "all" });
     const n = pickNext();
@@ -290,14 +297,23 @@ function onAnswer(q, a) {
     renderQuiz(); window.scrollTo(0, 0); return;
   }
   if (a === "show") { setCur({ id: q.id, stage: "a" }); renderQuiz(); return; }
-  const ok = a === "self1" ? 1 : a === "self0" ? 0 : (a === q.v ? 1 : 0);
-  record(q.id, ok);
-  setCur({ id: q.id, stage: "a", ok });
-  renderQuiz();
+  if (a === "pick") {
+    const tf = q.v === "正しい" || q.v === "誤り";
+    const pick = tf ? v : Number(v);
+    const ok = tf ? (pick === q.v ? 1 : 0) : pick;
+    setCur({ ...cur, id: q.id, stage: "a", pick, ok, t: cur.t || Date.now() });   // 解いた時刻は最初に選んだとき
+    renderQuiz();
+  }
+}
+// 選んだまま記録していない答えを記録する（「次へ」のほか、一覧などから別の問題へ移るときにも）
+function commitCur() {
+  if (!cur || cur.stage !== "a" || cur.pick === undefined || cur.done) return;
+  record(cur.id, cur.ok, cur.t);
+  setCur({ ...cur, done: true });
 }
 
-function record(id, r) {
-  const x = { i: id, t: Date.now(), r };
+function record(id, r, t = Date.now()) {
+  const x = { i: id, t, r };
   (logs[device] ||= []).push(x);
   pending.push(x);
   store.set("logs", logs); store.set("pending", pending);
@@ -386,6 +402,7 @@ function onListClick(e) {
   const b = e.target.closest("[data-sc]");
   if (!b) return;
   e.preventDefault();
+  commitCur();
   const sc = JSON.parse(b.dataset.sc);
   setScope(sc);
   recent = [];
