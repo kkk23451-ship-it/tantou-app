@@ -1,8 +1,9 @@
 // アプリの枠を端末に保存し、通信なしでも開けるようにする。
 // 枠は保存したものをすぐ返し、裏で新しい版を取りに行く（次に開いたときに反映）。
-// GitHub への問い合わせ（問題と記録）はここでは扱わない。問題を保存した "data" の入れ物は消さない。
-const CACHE = "shell-v11";
-const SHELL = ["./", "index.html", "app.js", "style.css", "manifest.json", "icon-180.png", "icon-512.png"];
+// GitHub への問い合わせ（問題と記録、教材）はここでは扱わない。問題を保存した "data" と教材を保存した "kyozai-data" の入れ物は消さない。
+const CACHE = "shell-v12";
+const SHELL = ["./", "index.html", "app.js", "style.css", "manifest.json", "icon-180.png", "icon-512.png",
+  "kyozai.html", "kyozai.js", "kyozai.css"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
