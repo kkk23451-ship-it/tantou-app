@@ -85,15 +85,22 @@ async function refreshIfChanged(path) {
 }
 
 // ---------- 表示 ----------
+// フォルダーとファイル名は、英数字と - _ だけを読む。ほかの形（.. や \ を含むものなど）は教材の一覧にする。
+// # の後ろから zaikei/ の外のファイル（ほかの人のリポジトリを含む）を読ませないため。
+const NAME = /^[A-Za-z0-9_-]+$/;
 function parseHash() {
-  const h = decodeURIComponent(location.hash.replace(/^#/, ""));
-  if (!h) return { file: "index.html", anchor: "" };
+  const home = { file: "index.html", anchor: "" };
+  let h = "";
+  try { h = decodeURIComponent(location.hash.replace(/^#/, "")); } catch { return home; }
+  if (!h) return home;
   const parts = h.split("/");
   // text/c25/rei12 → text/c25.html#rei12
   if (parts.length >= 2) {
+    if (!NAME.test(parts[0]) || !NAME.test(parts[1])) return home;
     const anchor = parts.length >= 3 ? parts.slice(2).join("/") : "";
     return { file: `${parts[0]}/${parts[1]}.html`, anchor };
   }
+  if (!NAME.test(parts[0])) return home;
   return { file: `${parts[0]}.html`, anchor: "" };
 }
 function routeOf(file, anchor) {
