@@ -192,12 +192,19 @@ function render(text, file) {
     img.dataset.src = src;
     if (io) io.observe(img); else loadImg(img, file);
   });
-  // 見出しと紙面の印に「リンクをコピー」を付ける
+  // 見出しと紙面の印にコピーボタンを付ける（コントレの問題・解答見出しは問題文と回答をコピー）
+  const isContre = file.startsWith("contre/");
   box.querySelectorAll("h2[id], h3[id], section.rei[id] > h4, .pg[id]").forEach((el) => {
     const id = el.id || el.parentElement.id;
     const b = document.createElement("button");
-    b.className = "klink"; b.type = "button"; b.textContent = "🔗"; b.title = "リンクをコピー";
-    b.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); copy(linkTo(file, id)); };
+    b.className = "klink"; b.type = "button";
+    if (isContre && /^(mon|kai)[\d-]+$/.test(id)) {
+      b.textContent = "📋"; b.title = "問題文と回答をコピー";
+      b.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); copy(contreText(box, id.slice(3)), "問題文と回答"); };
+    } else {
+      b.textContent = "🔗"; b.title = "リンクをコピー";
+      b.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); copy(linkTo(file, id), "リンク"); };
+    }
     el.appendChild(b);
   });
 }
@@ -220,11 +227,108 @@ function jump(anchor, smooth, again) {
   if (el) el.scrollIntoView({ block: "start", behavior: smooth ? "auto" : "auto" });
 }
 
-async function copy(text) {
-  try { await navigator.clipboard.writeText(text); toast("リンクをコピーしました"); }
+function inlineText(node) {
+  if (node.nodeType === 3) return node.nodeValue.replace(/[ \t\r\n]+/g, " ");
+  if (node.nodeType !== 1) return "";
+  if (node.classList.contains("gen") || node.classList.contains("klink")) return "";
+  const tag = node.tagName;
+  if (tag === "STYLE" || tag === "SCRIPT" || tag === "IMG") return "";
+  if (tag === "BR") return "\n";
+  if (node.classList.contains("fr") && node.children.length >= 2) {
+    return `(${inlineText(node.children[0]).trim()})／(${inlineText(node.children[1]).trim()})`;
+  }
+  let out = "";
+  for (const ch of node.childNodes) out += inlineText(ch);
+  return out;
+}
+
+function tlText(tl) {
+  const lines = ["[タイム・テーブル]"];
+  const joinRow = (el, sep) => Array.from(el.children)
+    .map((c) => inlineText(c).replace(/\n+/g, "").trim()).filter(Boolean).join(sep);
+  const addRow = (row) => {
+    const boxes = row.querySelector(".tl-boxes");
+    if (boxes) {
+      const name = boxes.querySelector(".tl-name, .tl-sub");
+      const parts = Array.from(boxes.querySelectorAll(".tl-box")).map((b) => inlineText(b).trim()).filter(Boolean);
+      const tot = boxes.querySelector(".tl-total");
+      const head = name ? inlineText(name).trim() + ": " : "";
+      const body = parts.join(" | ") + (tot ? ` (計 ${inlineText(tot).trim()})` : "");
+      if (head || body) lines.push(head + body);
+    }
+    const f = row.querySelector(".tl-formula");
+    if (f) {
+      for (const d of f.children) {
+        const s = inlineText(d).trim();
+        if (s) lines.push(s);
+      }
+    }
+  };
+  for (const ch of tl.children) {
+    if (ch.classList.contains("tl-line")) continue;
+    if (ch.classList.contains("tl-marks")) { const s = joinRow(ch, " / "); if (s) lines.push(s); }
+    else if (ch.classList.contains("tl-dates") || ch.classList.contains("tl-months") || ch.classList.contains("tl-noteline")) {
+      const s = joinRow(ch, "  "); if (s) lines.push(s);
+    } else if (ch.classList.contains("tl-row")) {
+      addRow(ch);
+    } else if (ch.classList.contains("tl-grp")) {
+      const gn = ch.querySelector(".tl-gname");
+      if (gn) lines.push(inlineText(gn).trim());
+      ch.querySelectorAll(":scope > .tl-row").forEach(addRow);
+    }
+  }
+  return lines.join("\n");
+}
+
+function tableText(tbl) {
+  const rows = Array.from(tbl.querySelectorAll("tr"));
+  if (rows.length === 1) {
+    const cells = rows[0].querySelectorAll("td, th");
+    if (cells.length === 1 && cells[0].querySelector("p")) {
+      return Array.from(cells[0].querySelectorAll("p")).map((p) => inlineText(p).trim()).filter(Boolean).join("\n");
+    }
+  }
+  return rows.map((tr) => Array.from(tr.querySelectorAll("td, th"))
+    .map((td) => inlineText(td).replace(/\n+/g, " ").replace(/\s+/g, " ").trim())
+    .join(" | ")).filter(Boolean).join("\n");
+}
+
+function sectionText(box, id) {
+  const head = document.getElementById(id);
+  if (!head || !box.contains(head)) return "";
+  const parts = [];
+  let prevBox = false;
+  for (let el = head; el; el = el.nextElementSibling) {
+    if (el !== head && (el.tagName === "H2" || el.tagName === "H1")) break;
+    if (el.classList.contains("gen") || el.tagName === "STYLE" || el.tagName === "SCRIPT" || el.tagName === "NAV") continue;
+    let txt = "";
+    if (el.tagName === "TABLE") txt = tableText(el);
+    else if (el.classList.contains("tl")) txt = tlText(el);
+    else if (el.tagName === "FIGURE") {
+      const cap = el.querySelector("figcaption");
+      txt = cap ? inlineText(cap).trim() : "";
+    } else {
+      txt = inlineText(el).trim();
+    }
+    if (!txt) continue;
+    const isBox = el.tagName === "H2" || el.tagName === "TABLE" || el.classList.contains("tl");
+    const isBreak = isBox || el.tagName === "H3" || el.tagName === "H4";
+    parts.push({ txt, gap: parts.length > 0 && (isBreak || prevBox) });
+    prevBox = isBox;
+  }
+  return parts.map((p, i) => (i === 0 ? "" : (p.gap ? "\n\n" : "\n")) + p.txt).join("");
+}
+
+function contreText(box, num) {
+  return [sectionText(box, `mon${num}`), sectionText(box, `kai${num}`)].filter(Boolean).join("\n\n---\n\n");
+}
+
+async function copy(text, label = "リンク") {
+  try { await navigator.clipboard.writeText(text); toast(`${label}をコピーしました`); }
   catch {
     const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select();
-    try { document.execCommand("copy"); toast("リンクをコピーしました"); } catch { prompt("リンク", text); }
+    try { ta.setSelectionRange(0, text.length); } catch {}
+    try { document.execCommand("copy"); toast(`${label}をコピーしました`); } catch { prompt(label, text); }
     ta.remove();
   }
 }
